@@ -1,0 +1,1820 @@
+using BIOVR_BLL;
+using BIOVR_DAL;
+using BIOVR_HELPER;
+using BIOVR_MODEL;
+using BIOVR_SERVER.PopupForms;
+using BIOVR_SERVER.UIAddition;
+using DevComponents.DotNetBar;
+using DevComponents.DotNetBar.Controls;
+using DevComponents.DotNetBar.SuperGrid;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+namespace BIOVR_SERVER
+{
+    public partial class frmAdminManage : Office2007Form
+    {
+        //实例化工具类
+        ExpmStepBLL expmStepBll = new ExpmStepBLL();
+        Tb_MachineBLL machBll = new Tb_MachineBLL();
+        Tb_ReagentBLL reagentBll = new Tb_ReagentBLL();
+        Tb_ExpirementBll expmBll = new Tb_ExpirementBll();
+        Tb_TeacherBLL techBll = new Tb_TeacherBLL();
+        Tb_StudentBLL stuBll = new Tb_StudentBLL();
+        Tb_StuScoreBLL stuScoreBll = new Tb_StuScoreBLL();
+        Tb_ChoiceQuestAnswerBLL cQuestAnsBll = new Tb_ChoiceQuestAnswerBLL();
+        Tb_EssayQuestBLL eQuestBll = new Tb_EssayQuestBLL();
+        Tb_ChoiceQuestBLL cQuestBll = new Tb_ChoiceQuestBLL();
+        Tb_AdminBLL adminBll = new Tb_AdminBLL();
+        //当前选择的实验对象
+        Tb_Expirement CurrExpmModel = null;
+        //当前选择的仪器对象
+        MachineModel currMachModel = null;
+        //当前选择的试剂对象
+        Tb_Reagent currReagModel = null;
+        //当前选择的教师对象
+        Tb_Teacher currTeacher = null;
+        //当前选择的学生对象
+        public static event Action<StudentModelBasic> CurrStuSet;      
+        private StudentModelBasic currStu;
+        public StudentModelBasic CurrStu
+        {
+            get { return currStu; }
+            set { 
+                currStu = value;
+                if (CurrStuSet!=null)
+                {
+                    CurrStuSet(currStu);
+                }
+                
+            }
+        }
+
+        //试题页当前选择的实验
+        //-1表示未选择任何实验
+        int currQuestExpmID = -1;
+        //当前选择实验的选择题和问答题列表
+        List<Tb_ChoiceQuest> currCquestList;
+        List<Tb_EssayQuest> currEquestList;
+        //当前选择的题
+        Tb_ChoiceQuest currCq = null;
+        Tb_EssayQuest currEq = null;
+
+        //当前选择的管理员
+        Tb_Admin currAdmin = null;
+
+        //默认图片文件
+        Image defaultImg =   Properties.Resources.PicNotExsit;
+       
+        public frmAdminManage ()
+        {
+            frmSystemLogin.AdminLoged += SetCurrAdmin;
+            InitializeComponent();
+            InitializeWinform();
+            InitializeUpdateData();
+        }
+        /// <summary>
+        /// 当前登录的管理员
+        /// </summary>
+        private void SetCurrAdmin(Tb_Admin loginAdmin)
+        {
+            string stautBarInfoText = "";
+            //超级管理员显示管理员按钮
+            if (loginAdmin.IsRoot)
+            {
+            stautBarInfoText =  string.Format("当前登录：{0}（超级管理员）",loginAdmin.Name);
+            this.ribbonBarBtnAdmin.Visible=true;
+            }
+            else
+            {
+            stautBarInfoText =  string.Format("当前登录：{0}",loginAdmin.Name);
+            this.ribbonBarBtnAdmin.Visible=false;
+            }
+            //状态栏信息
+            this.frmAdminManagerStautBar.Text = stautBarInfoText;
+        }
+        #region 界面初始化
+        private Panel currPanel;
+        private void InitializeWinform()
+        {
+            //设置鼠标中键滚动条事件加载事件
+            this.panelMachRightBottom.MouseWheel += new System.Windows.Forms.MouseEventHandler(this.ResponsTo_MouseWheel);
+            //设置Teacher、Student、Admin superGrid特殊单元格格式(CustomCellButton定义见BIOVR_SERVER.UIAddition)
+            //Tab1Initiate();
+
+            Tab4Initiate();
+            Tab5Initiate();
+            Tab7Initiate();
+           
+        }
+
+
+
+
+        /// <summary>
+        /// 设置当前窗体鼠标中键滚动公共方法
+        /// </summary>
+        private void ResponsTo_MouseWheel(object sender, MouseEventArgs e)
+        {
+            //获取光标位置
+            Point mousePoint = new Point(e.X, e.Y);
+            //换算成相对本窗体的位置
+            mousePoint.Offset(this.Location.X, this.Location.Y);
+            //判断是否在panel内
+            if (this.currPanel.RectangleToScreen(this.currPanel.DisplayRectangle).Contains(mousePoint))
+            {
+                //滚动
+                this.currPanel.AutoScrollPosition = new Point(0, this.currPanel.VerticalScroll.Value - e.Delta);
+            }
+        }
+        private void panelMachRightBottom_MouseClick(object sender, MouseEventArgs e)
+        {
+            this.currPanel = sender as Panel;
+            this.currPanel.Focus();
+        } 
+        #endregion
+
+
+        /// <summary>
+        ///向各表中读取数据
+        /// </summary>
+        private void InitializeUpdateData()
+        {
+
+            //读取tab1-Expirement表
+            dgvExpirement.AutoGenerateColumns = false;
+            dgvExpirement.DataSource = expmBll.GetAllOrderedByExpmNum();
+            //读取tab2-Machine表
+            dgvMachine.AutoGenerateColumns = false;
+            dgvMachine.DataSource = machBll.GetAllMachine();
+            //读取tab3-Reagent表
+            sdgvReagent.PrimaryGrid.ShowRowGridIndex = true;
+            sdgvReagent.PrimaryGrid.ReadOnly = true;
+            sdgvReagent.PrimaryGrid.AutoGenerateColumns = false;
+            sdgvReagent.PrimaryGrid.DataSource = reagentBll.GetAll();
+            //读取tab4-Teacher表
+            sdgvTeacher.PrimaryGrid.AutoGenerateColumns = false;
+            sdgvTeacher.PrimaryGrid.DataSource = techBll.GetAll();
+            //设置tab5-Student表            
+            sdgvStudent.PrimaryGrid.AutoGenerateColumns = false;
+            //设置tab6-Quest表
+            //设置Combo实验列表
+            cboQuestExpmList.DataSource = expmBll.GetAllOrderedByExpmNum() ;
+            cboQuestExpmList.DisplayMember = "ExpmName";
+            cboQuestExpmList.SelectedIndex = 0; 
+            //设置管理员列表
+            sdgvAdmin.PrimaryGrid.AutoGenerateColumns = false;
+            sdgvAdmin.PrimaryGrid.DataSource = adminBll.GetAllExceptSuper();
+        }
+        #region tab1-Expirement
+        /// <summary>
+        /// tab1的显示格式设定
+        /// </summary>
+        private void dgvExpirement_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+           // Tb_Expirement empxModel = dgvExpirement.Rows[e.RowIndex].DataBoundItem as Tb_Expirement;
+            if (e.ColumnIndex == 2)
+            {
+                e.Value = (bool)e.Value == true ? "定量试验" : "定性试验";
+            }
+            if (e.ColumnIndex > 2 && e.ColumnIndex < 6)
+            {
+                e.Value = e.Value == null ? "无" : "有";
+            }
+            if (e.ColumnIndex == 6)
+            {
+               // e.Value = e.Value==true?"启用"
+                if ((bool)e.Value == true)
+                {
+                    dgvExpirement.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Green;
+                    e.Value = "启用";
+                    return;
+                }
+                else
+                {
+                    dgvExpirement.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.ForeColor = Color.Gray;
+                    e.Value = "停用";
+                }
+                
+            }
+            //MessageBox.Show(e.ColumnIndex.ToString());
+        }
+
+        /// <summary>
+        /// 实验编号只能是数字
+        /// </summary>
+        private string pattern = @"^[0-9]*$";
+        private void txtExpmNum_TextChanged(object sender, EventArgs e)
+        {
+            Match m = Regex.Match(this.txtExpmNum.Text, pattern);   // 匹配正则表达式
+
+            if (!m.Success)   // 输入的不是数字
+            {
+                this.txtExpmNum.Clear();
+                this.txtExpmNum.Focus();
+                this.txtExpmNum.WatermarkEnabled = true;
+                this.txtExpmNum.WatermarkText = "实验编号必需是数字";
+                this.highlighter1.SetHighlightColor(this.txtExpmNum, DevComponents.DotNetBar.Validator.eHighlightColor.Red);
+                //return;
+            }
+            else
+            {
+                this.txtExpmNum.WatermarkEnabled = false;
+                this.highlighter1.SetHighlightColor(this.txtExpmNum, DevComponents.DotNetBar.Validator.eHighlightColor.None);
+            }
+        }
+        /// <summary>
+        /// tab1-Expirement表下半部分窗体更新
+        /// </summary>
+        //int c = 0;
+        private void dgvExpirement_RowEnter(object sender, DataGridViewCellEventArgs e)
+        {
+            if (CurrExpmModel!=null)
+            {
+                CurrExpmModel = null;
+            }
+            CurrExpmModel = dgvExpirement.Rows[e.RowIndex].DataBoundItem as Tb_Expirement;
+            txtExpmNum.Text = CurrExpmModel.ExpmNum.ToString();
+            txtExpmName.Text = CurrExpmModel.ExpmName;
+            txtExpmTheory.Text = CurrExpmModel.ExpmTheory;
+            //获得实验仪器列表
+             txtExpmMach.Text=  machBll.GetMachByExpmId(CurrExpmModel.ExpmID);
+            //获得实验试剂列表
+             txtExpmReagent.Text = reagentBll.GetReagNamesOfExpm(CurrExpmModel.ExpmID);
+            //获得实验步骤列表
+             dgvExpmStep.AutoGenerateColumns = false;
+             dgvExpmStep.DataSource = expmStepBll.GetExpmStepsByExpmId(CurrExpmModel.ExpmID);
+             txtEmpmResult.Text = CurrExpmModel.ExpmResult;
+             if (CurrExpmModel.ExpmVideoPath==null)
+             {
+                 txtExpmIfHasVideo.Text = "无";
+                 btnExpmSeeVideo.Enabled = false;
+             }
+             else
+             {
+                 txtExpmIfHasVideo.Text = "有";
+                 btnExpmSeeVideo.Enabled = true;
+             }
+             if (CurrExpmModel.ExpmBrochurePath==null)
+             {
+                 txtExpmIfHasBrochure.Text = "无";
+                 btnExpmSeeBrochure.Enabled = false;
+             }
+             else
+             {
+                 txtExpmIfHasBrochure.Text = "有";
+                 btnExpmSeeBrochure.Enabled = true;
+             }
+             switchExpmState.Value = CurrExpmModel.ExpmIsActive;
+             if (CurrExpmModel.ExpmImagePath==null)
+             {
+                 picboxExpm.Image = Properties.Resources.PicNotExsit;
+             }
+             else
+             {
+                 picboxExpm.Image = Image.FromFile(CurrExpmModel.ExpmImagePath);
+             }
+        }
+
+        #region tab1-Expiremen-按钮事件
+        /// <summary>
+        /// 用户修改实验视频
+        /// </summary>
+        private void btnExpmModifyVideo_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel == null)
+            {
+                MessageBox.Show("请先选择要设定的实验");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "avi文件|*avi|mp4文件|*.mp4|mov文件|*.mov";
+            ofd.Title = "更新实验操作视频";
+
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string videoSource = ofd.FileName;
+                DialogResult dR = MessageBox.Show("是否将视频文件拷贝至项目文件？", "请确认", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (dR == DialogResult.No)
+                {
+                   CurrExpmModel.ExpmVideoPath = videoSource;//设置最终保存到DB的视频路径
+                    ToastNotification.Show(this, "实验视频设置成功", eToastPosition.BottomCenter);
+                    return;
+                }
+                else if (dR == DialogResult.Yes)
+                {
+                    System.IO.FileInfo info = new System.IO.FileInfo(videoSource);
+                    CurrExpmModel.ExpmVideoPath = Application.StartupPath + @"\Resources\Videoes\Expirement\" + "ExpmVideo_" + CurrExpmModel.ExpmID.ToString() + info.Extension;
+                    FormFileCopyModel copyModel = new FormFileCopyModel()
+                    {
+                        Src = videoSource,
+                        Des = CurrExpmModel.ExpmVideoPath,
+                        DockPanel = (object)this.itemPanelExpmVideoStaut,
+                    };
+                    //开始异步copy    
+                    BigFileCopy(copyModel);                  
+                }
+            }        
+        }
+
+        /// <summary>
+        /// 用户查看实验视频
+        /// </summary>
+        private void btnExpmSeeVideo_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel.ExpmVideoPath == null)
+            {
+                ToastNotification.Show(this, "仪器尚未指定视频文件...");
+                return;
+            }
+            ProcessStartInfo info = new ProcessStartInfo(CurrExpmModel.ExpmVideoPath);
+            Process pro = Process.Start(info);
+        }
+        /// <summary>
+        /// 用户修改实验讲义
+        /// </summary>
+        private void btnExpmModifyBrochure_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel == null)
+            {
+                MessageBox.Show("请先选择要设定的仪器");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "pdf文件|*pdf|Office2003文件|*.doc|Office2007-10文件|*.docx|文本文件|*.txt";
+            ofd.Title = "更新实验讲义";
+            //项目约定的命名方式：实验讲义：ExpmBroch+实验ID号
+            string docTarPath = Application.StartupPath + @"\Resources\Docs\Expirement\ExpmBroch" + CurrExpmModel.ExpmID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                string docSource = ofd.FileName;
+                if (FileHelper.CopyFileToAppPath(docSource, docTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                       CurrExpmModel.ExpmBrochurePath = finalPath;//保存成功修改的说明书地址，将在更新本条数据时使用
+                        ToastNotification.Show(this, "添加/修改实验讲义成功",eToastPosition.BottomCenter);
+
+                    }
+                    return;
+                }
+                else
+                {
+                     MessageBoxEx.Show("添加仪器说明书失败！");
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// 用户查看实验讲义
+        /// </summary>
+        private void btnExpmSeeBrochure_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel.ExpmBrochurePath == null)
+            {
+                ToastNotification.Show(this, "尚未指定实验讲义...");
+                return;
+            }
+            ProcessStartInfo info = new ProcessStartInfo(CurrExpmModel.ExpmVideoPath);
+            Process pro = Process.Start(info);
+        }
+        /// <summary>
+        /// 用户修改实验封面图片
+        /// </summary>
+        private void btnExpmChangeImage_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel == null)
+            {
+                ToastNotification.Show(this,"请先选择要设定的实验",eToastPosition.BottomCenter);
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "bmp|*bmp|jpg|*.jpg|png|*.png";
+            ofd.Title = "更新实验图片";
+
+
+            //将ExpmImg+实验ID号作为文件名，将用户选择的图片复制一份到项目文件夹下，以防将来用户删除源图片
+            string picTarPath = Application.StartupPath + @"\Resources\Images\Expirement\ExpmImg" + CurrExpmModel.ExpmID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                if (FileHelper.CopyFileToAppPath(ofd.FileName, picTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                        this.picboxExpm.Image = Image.FromFile(finalPath);
+                        CurrExpmModel.ExpmImagePath = finalPath;//保存成功修改的图片地址，将在更新本条数据时使用
+                        return;
+                    }
+
+                    MessageBox.Show("修改图片失败！");
+                }
+                else
+                {
+                    this.picboxExpm.Image = defaultImg;
+                    MessageBox.Show("修改图片失败！，将使用默认图片");
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// 保存tab-1的修改到DB
+        /// </summary>
+         //string expmImagePath, expmVideoPath, expmBrochurePath = null;
+        private void btnExpmSavePage_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel==null)
+            {
+                ToastNotification.Show(this, "尚未选择任何实验", eToastPosition.BottomCenter);
+                return;
+            }
+            //Tb_Expirement model = new Tb_Expirement();
+            //model.ExpmNum = txtExpmNum.Text.Trim();
+            //model.ExpmName = txtExpmName.Text.Trim();
+            //model.ExpmTheory = txtExpmTheory.Text;
+            //model.ExpmResult = txtEmpmResult.Text;
+            //model.ExpmIsActive = switchExpmState.Value;
+            byte expmNumTemp = 0;
+            byte.TryParse(txtExpmNum.Text.Trim(),out expmNumTemp);
+            CurrExpmModel.ExpmNum = expmNumTemp;
+            CurrExpmModel.ExpmName = txtExpmName.Text.Trim();
+            CurrExpmModel.ExpmTheory = txtExpmTheory.Text;
+            CurrExpmModel.ExpmResult = txtEmpmResult.Text;
+            CurrExpmModel.ExpmIsActive = switchExpmState.Value;
+
+            int r = new Tb_ExpirementBll().Update(CurrExpmModel);
+            if (r>0)
+            {
+                dgvExpirement.DataSource = expmBll.GetAllOrderedByExpmNum();
+                ToastNotification.Show(this, string.Format("成功更新实验{0}的数据", CurrExpmModel.ExpmName), eToastPosition.BottomCenter);
+            }
+           
+        } 
+        #endregion
+        #endregion
+        #region tab2-Machine
+        /// <summary>
+        /// tab2的显示格式设定
+        /// </summary>
+        private void dgvMachine_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            MachineModel machModel = dgvMachine.Rows[e.RowIndex].DataBoundItem as MachineModel;
+            if (e.ColumnIndex == 2)
+            {
+                MachineScaleBLL bll = new MachineScaleBLL();
+                e.Value = bll.GetMachScaleById(machModel.MachScale);
+            }
+            if (e.ColumnIndex == 3)
+            {
+                MachineCatalogBLL bll = new MachineCatalogBLL();
+                e.Value = bll.GetMachCatalogById(machModel.MachCatalog);
+            }
+            if (e.ColumnIndex > 5 && e.ColumnIndex < 10)
+            {
+                if (e.Value != null)
+                {
+                    e.Value = "有";
+                    return;
+                }
+                else
+                    e.Value = "无";
+            }
+
+
+        }
+        /// <summary>
+        /// tab2-Machine表下半部分窗体更新
+        /// </summary>
+        private void dgvMachine_RowEnter(object sender, DataGridViewCellEventArgs e)
+        {
+            //设置所有的ComboBox绑定
+            cboMachScale.DisplayMember = "MachScaleName";
+            cboMachScale.ValueMember = "MachScaleId";
+            cboMachScale.DataSource = new MachineScaleBLL().GetAllMachSacleModels();
+
+            cboMachCatalog.DisplayMember = "MachCatalogName";
+            cboMachCatalog.ValueMember = "MachCatalogId";
+            cboMachCatalog.DataSource = new MachineCatalogBLL().GetAllMachineCatalogModels();
+
+
+            //获得当前选择对象
+            currMachModel = dgvMachine.Rows[e.RowIndex].DataBoundItem as MachineModel;
+            if (currMachModel != null)
+            {
+                txtMachName.Text = currMachModel.MachName;
+                txtMachAltName.Text = currMachModel.MachAltName;
+                cboMachScale.SelectedIndex = currMachModel.MachScale - 1;//此处有隐患？
+                cboMachCatalog.SelectedIndex = currMachModel.MachCatalog - 1;
+                txtMachBasicInfo.Text = currMachModel.MachInfoBasic;
+                txtMachDetailInfo.Text = currMachModel.MachInfoDetail; 
+                picMachPicBig.Image = currMachModel.MachImagePath == null ? Properties.Resources.PicNotExsit : Image.FromFile(currMachModel.MachImagePath);
+                if (currMachModel.MachVideoPath == null)
+                {
+                    txtIfMachHasVideo.Text = "无";
+                    btnSeeMachVideo.Enabled = false;
+                }
+                else
+                {
+                    txtIfMachHasVideo.Text = "有";
+                    btnSeeMachVideo.Enabled = true;
+                }
+                if (currMachModel.MachBrochurePath == null)
+                {
+                    txtMachIfHasBrochure.Text = "无";
+                    btnSeeMachBrochure.Enabled = false;
+                }
+                else
+                {
+                    txtMachIfHasBrochure.Text = "有";
+                    btnSeeMachBrochure.Enabled = true;
+                }
+  
+                switchBtnMachIfActive.Value = currMachModel.MachIsActive;
+            }
+        }
+        
+        #region tab2-Machine-按钮事件
+        /// <summary>
+        /// tab2-Machine表用户选择仪器图片并保存至项目文件夹
+        /// </summary>
+        private void btnMachModifyPic_Click(object sender, EventArgs e)
+        {
+            if (currMachModel == null)
+            {
+                MessageBox.Show("请先选择要设定的仪器");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "bmp|*bmp|jpg|*.jpg|png|*.png";
+            ofd.Title = "更新仪器图片";
+
+
+            //将MachImg+仪器ID号作为文件名，将用户选择的图片复制一份到项目文件夹下，以防将来用户删除源图片
+            string picTarPath = Application.StartupPath + @"\Resources\Images\Machine\MachImg" + currMachModel.MachID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                string picSource = ofd.FileName;
+                if (FileHelper.CopyFileToAppPath(picSource, picTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                        picMachPicBig.Image = Image.FromFile(finalPath);
+                        machImagePath = finalPath;//保存成功修改的图片地址，将在更新本条数据时使用
+                        return;
+                    }
+
+                    MessageBox.Show("修改图片失败！");
+                }
+                else
+                {
+                    picMachPicBig.Image = defaultImg;
+                    MessageBox.Show("修改图片失败！，将使用默认图片");
+                    return;
+                }
+            }
+
+        }
+        /// <summary>
+        /// 用户修改仪器视频
+        /// </summary>
+        private void btnMachModifyVideo_Click(object sender, EventArgs e)
+        {
+            if (CurrExpmModel == null)
+            {
+                MessageBox.Show("请先选择要设定的仪器");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "avi文件|*avi|mp4文件|*.mp4|mov文件|*.mov";
+            ofd.Title = "更新仪器操作视频";
+
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string videoSource = ofd.FileName;
+                DialogResult dR = MessageBox.Show("是否将视频文件拷贝至项目文件？", "请确认", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (dR == DialogResult.No)
+                {
+                    machVideoPath = videoSource;//设置最终保存到DB的视频路径
+                    ToastNotification.Show(this, "仪器视频设置成功", eToastPosition.BottomCenter);
+                    return;
+                }
+                else if (dR == DialogResult.Yes)
+                {
+                    System.IO.FileInfo info = new System.IO.FileInfo(videoSource);
+                    machVideoPath = Application.StartupPath + @"\Resources\Videoes\Machine\" + "MachineVideo_" + currMachModel.MachID.ToString() + info.Extension;
+                    FormFileCopyModel copyModel = new FormFileCopyModel()
+                    {
+                        Src = videoSource,
+                        Des = machVideoPath,
+                        DockPanel = (object)this.panelVideoModify,
+                    };
+                    //开始异步copy    
+                    BigFileCopy(copyModel);
+                }
+            }        
+        }
+        /// <summary>
+        /// 用户选择仪器说明书并保存至项目文件夹
+        /// </summary>
+        private void btnMachModifyBrochure_Click(object sender, EventArgs e)
+        {
+            if (currMachModel == null)
+            {
+                MessageBox.Show("请先选择要设定的仪器");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "pdf文件|*pdf|Office2003文件|*.doc|Office2007-10文件|*.docx|文本文件|*.txt";
+            ofd.Title = "更新仪器说明书";
+            //MachBroch+仪器ID号
+            string docTarPath = Application.StartupPath + @"\Resources\Docs\Machine\MachBroch" + currMachModel.MachID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                string docSource = ofd.FileName;
+                if (FileHelper.CopyFileToAppPath(docSource, docTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                        machBrochurePath = finalPath;//保存成功修改的说明书地址，将在更新本条数据时使用
+                        MessageBox.Show("添加仪器说明书成功！");
+
+                    }
+                    return;
+                    //MessageBox.Show("添加仪器说明书失败！");
+                }
+                else
+                {
+                    MessageBox.Show("添加仪器说明书失败！");
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// 用户查看仪器视频
+        /// </summary>
+        private void btnSeeMachVideo_Click(object sender, EventArgs e)
+        {
+            if (currMachModel.MachVideoPath == null)
+            {
+                ToastNotification.Show(this, "仪器尚未指定视频文件...");
+                return;
+            }
+            ProcessStartInfo info = new ProcessStartInfo(currMachModel.MachVideoPath);
+            Process pro = Process.Start(info);
+        }
+        /// <summary>
+        /// 用户查看仪器说明书
+        /// </summary>
+        private void buttonItem22_Click(object sender, EventArgs e)
+        {
+            if (currMachModel.MachBrochurePath == null)
+            {
+                ToastNotification.Show(this, "仪器尚未指定说明书...");
+                return;
+            }
+            ProcessStartInfo info = new ProcessStartInfo(currMachModel.MachBrochurePath);
+            Process pro = Process.Start(info);
+        }
+        /// <summary>
+        ///  tab2-Machine表写入DB
+        /// </summary>
+        //准备待写入的字段,这些字段将在用户选择后被赋值，machinemodel的其余字段直接从界面上取值
+        string machImagePath, machVideoPath, machBrochurePath = null;//machModelPath不用设定，不允许用户修改模型文件
+
+
+        private void btnMachSAVEALL_Click(object sender, EventArgs e)
+        {
+            MachineModel machModel = new MachineModel();
+            machModel.MachID = currMachModel.MachID;//设置更新当前选择的machine
+            machModel.MachName = txtMachName.Text.Trim();
+            machModel.MachAltName = txtMachAltName.Text.Trim();
+            machModel.MachScale = (byte)cboMachScale.SelectedValue;
+            machModel.MachCatalog = (byte)cboMachCatalog.SelectedValue;
+            machModel.MachInfoBasic = txtMachBasicInfo.Text;
+            machModel.MachInfoDetail = txtMachDetailInfo.Text;
+            machModel.MachImagePath = machImagePath;
+            machModel.MachVideoPath = machVideoPath;
+            machModel.MachBrochurePath = machBrochurePath;
+            machModel.MachIsActive = switchBtnMachIfActive.Value;
+            int result = machBll.UpdateMachine(machModel);
+            if (result > 0)
+            {
+                 ToastNotification.Show(this,string.Format("成功更新{0}条记录", result),eToastPosition.BottomCenter);
+                //必须重新绑定，这就是winform为什么落后的原因
+                dgvMachine.DataSource = machBll.GetAllMachine();
+                return;
+            }
+            else
+                MessageBox.Show("更新了0条记录");
+        } 
+        #endregion
+        #endregion
+        #region tab3-Reagent
+        /// <summary>
+        /// 设置试剂表特殊格式
+        /// </summary>
+        private void sdgvReagent_GetRenderer(object sender, GridGetRendererEventArgs e)
+        {
+            if (e.GridCell.Value == null)
+            {
+                e.GridCell.Value = "无";
+            }
+        }
+
+        //更新试剂表下部数据
+        private void sdgvReagent_CellClick(object sender, GridCellClickEventArgs e)
+        {
+            //清除之前选择
+            if (currReagModel != null)
+                currReagModel = null;
+            currReagModel = e.GridCell.GridRow.DataItem as Tb_Reagent;
+            //MessageBox.Show(currReagModel.ReagID.ToString());
+            UpdateReagDetail(currReagModel);
+        }
+
+        private void UpdateReagDetail(Tb_Reagent currReagModel)
+        {
+            if (currReagModel == null)
+            {
+                return;
+            }
+            this.txtReagName.Text = currReagModel.ReagName;
+            this.txtReagAltName.Text = currReagModel.ReagAltName;
+            this.txtReagBasicInfo.Text = currReagModel.ReagInfoBasic;
+            this.txtReagDetailInfo.Text = currReagModel.ReagInfoDetail;
+            if (currReagModel.ReagBrochurePath == "无")
+            {
+                this.txtReagHasBrochure.Text = "无";
+                btnReagSeeBrochure.Enabled = false;
+            }
+            else
+            {
+                this.txtReagHasBrochure.Text = "有";
+                btnReagSeeBrochure.Enabled = true;
+            }
+            switchReagState.Value = currReagModel.ReagIsActive;
+            if (String.IsNullOrEmpty(currReagModel.ReagImagePath) || currReagModel.ReagImagePath=="无")
+            {
+                picboxReag.Image = Properties.Resources.PicNotExsit;
+            }
+            else
+            {
+                picboxReag.Image = Image.FromFile(currReagModel.ReagImagePath);
+            }
+           
+
+        }
+        /// <summary>
+        /// 用户修改试剂说明书
+        /// </summary>
+        private void btnReagModifyBrochure_Click(object sender, EventArgs e)
+        {
+            if (currReagModel == null)
+            {
+                MessageBox.Show("请先选择要设定的试剂");
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "pdf文件|*pdf|Office2003文件|*.doc|Office2007-10文件|*.docx|文本文件|*.txt";
+            ofd.Title = "更新试剂说明书";
+            //ReagBroch+试剂ID号
+            string docTarPath = Application.StartupPath + @"\Resources\Docs\Reagent\ReagBroch" + currReagModel.ReagID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                string docSource = ofd.FileName;
+                if (FileHelper.CopyFileToAppPath(docSource, docTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                        currReagModel.ReagBrochurePath = finalPath;//保存成功修改的说明书地址，将在更新本条数据时使用
+                        ToastNotification.Show(this, "添加/修改试剂说明书成功", eToastPosition.BottomCenter);
+
+                    }
+                    return;
+                }
+                else
+                {
+                    MessageBoxEx.Show("添加/修改试剂说明书失败！");
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// 用户查看试剂说明书
+        /// </summary>
+        private void btnReagSeeBrochure_Click(object sender, EventArgs e)
+        {
+            if (currReagModel.ReagBrochurePath == null)
+            {
+                ToastNotification.Show(this, "尚未指定实验说明书...");
+                return;
+            }
+            ProcessStartInfo info = new ProcessStartInfo(currReagModel.ReagBrochurePath);
+            Process pro = Process.Start(info);
+        }
+        /// <summary>
+        /// 用户修改试剂图片
+        /// </summary>
+        private void btnReagChangeImage_Click(object sender, EventArgs e)
+        {
+            if (currReagModel == null)
+            {
+                ToastNotification.Show(this, "请先选择要设定的试剂", eToastPosition.BottomCenter);
+                return;
+            }
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "bmp|*bmp|jpg|*.jpg|png|*.png";
+            ofd.Title = "更新试剂图片";
+
+            //ReagImg+试剂ID号
+            string picTarPath = Application.StartupPath + @"\Resources\Images\Reagent\ReagImg" + currReagModel.ReagID.ToString();
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                string finalPath = null;
+                if (FileHelper.CopyFileToAppPath(ofd.FileName, picTarPath, out finalPath))
+                {
+                    if (finalPath != null)
+                    {
+                        this.picboxReag.Image = Image.FromFile(finalPath);
+                        currReagModel.ReagImagePath = finalPath;//保存成功修改的图片地址，将在更新本条数据时使用
+                        return;
+                    }
+
+                    MessageBox.Show("修改图片失败！");
+                }
+                else
+                {
+                    this.picboxReag.Image = defaultImg;
+                    ToastNotification.Show(this, "修改图片失败！，将使用默认图片", eToastPosition.BottomCenter);
+                    return;
+                }
+            }
+        }
+        /// <summary>
+        /// 保存试剂页至DB
+        /// </summary>
+        private void btnReagSaveAll_Click(object sender, EventArgs e)
+        {
+            currReagModel.ReagName = txtReagName.Text.Trim();
+            currReagModel.ReagAltName = txtReagAltName.Text.Trim();
+            currReagModel.ReagInfoBasic = txtReagBasicInfo.Text;
+            currReagModel.ReagInfoDetail = txtReagDetailInfo.Text;
+            currReagModel.ReagIsActive = switchReagState.Value;
+
+            reagentBll.Update(currReagModel);
+
+            sdgvReagent.PrimaryGrid.DataSource = reagentBll.GetAll();
+
+        }
+        /// <summary>
+        /// 试剂查询
+        /// </summary>
+        private void buttonItem9_Click(object sender, EventArgs e)
+        {
+            sdgvReagent.PrimaryGrid.DataSource = reagentBll.GetByReagentName(txtReagSearch.Text.Trim());
+        }
+        private void buttonItem10_Click(object sender, EventArgs e)
+        {
+            sdgvReagent.PrimaryGrid.DataSource = reagentBll.GetAll();
+        }
+        private void txtReagSearch_KeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                buttonItem9.RaiseClick();
+            }
+        }
+
+        #endregion
+        #region tab4-Teacher
+
+        private void Tab4Initiate()
+        {
+            GridPanel panel = sdgvTeacher.PrimaryGrid;
+            GridColumn column = panel.Columns["btnColumeTeacherSave"];
+            column.EditorType = typeof(CustomCellButton);
+
+
+            this.sdgvTeacher.CellValueChanged += SuperGridCellValueChangeMonintor;
+            this.sdgvTeacher.CellClick += SdgvTeacher_CellClick;
+        }
+        private void SuperGridCellValueChangeMonintor(object sender, GridCellValueChangedEventArgs e)
+        {         
+                GridRow row =e.GridCell.GridRow;
+                row.Cells["btnColumeTeacherSave"].ReadOnly = false;
+   
+        }
+        private void SdgvTeacher_CellClick(object sender, GridCellClickEventArgs e)
+        {
+            currTeacher = e.GridCell.GridRow.DataItem as Tb_Teacher;
+        }
+        #endregion
+        #region tab5-Student
+       // int stuRealTotalCount = 0;//总记录数，只是为了界面显示用
+        private void Tab5Initiate()
+        {
+            StuListUpdated += UpdateStuListNow;
+            GridPanel panel = sdgvStudent.PrimaryGrid;
+          
+            panel.Columns[2].EditorType = typeof(SGVCustomCbox_TbStudentGrade);
+            panel.Columns[3].EditorType = typeof(SGVCustomCbox_TbStudentClass);
+            panel.Columns[4].EditorType = typeof(SGVCustomCbox_TbStudentMajor);
+            //设置filter格式
+            sdgvStudent.FilterPopupLoaded += sdgvStudent_FilterPopupLoaded;
+            sdgvStudent.CellDoubleClick += sdgvStudent_CellDoubleClick;
+            //显示50条记录
+            //stuRealTotalCount = stuBll.GetTotalCount();
+            this.txtStuTotalCount.Text = string.Format("共{0}条记录", stuBll.GetTotalCount());
+            //第一次事件执行,显示前50条记录
+            StuCurrList = stuBll.GetPagedData(1, 50) as List<Tb_Student>;
+            //搜索
+            this.cboStuSearch.SelectedIndex = 0;
+            this.cboStuSearch.SelectedIndexChanged+=cboStuSearch_SelectedIndexChanged;
+            this.btnStuSearchStudents.Click += btnStuSearchStudents_Click;            
+        }
+
+
+        /// <summary>
+        /// 根据用户选择的搜索方式切换枚举
+        /// </summary>
+
+        private void cboStuSearch_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            ComboBoxEx cbo = sender as ComboBoxEx;
+            if (cbo.SelectedIndex==0)
+            {
+                searchMode = SearchMode.ByName;
+                return;
+            }
+            searchMode = SearchMode.ByschoolID;
+        }
+        //定义搜索方式
+        enum SearchMode { ByName = 0,ByschoolID}
+        SearchMode searchMode;
+        /// <summary>
+        /// 搜索按钮
+        /// </summary>
+        void btnStuSearchStudents_Click(object sender, EventArgs e)
+        {
+            sdgvStudent.PrimaryGrid.DataSource = null;
+            //模糊查询
+            if (checkBoxStuIfSearchBlur.Checked)
+            {
+                //按姓名模糊查询
+                if (searchMode == SearchMode.ByName)
+                {
+                    // 给StuCurrList赋值将引发 StuListUpdated事件，随之方法UpdateStuListNow将更新界面
+                    StuCurrList = stuBll.GetCustomStusByString(this.cboStuSearch.Text.Trim(), SearchBy.Name, SearchType.InAccurate);          
+                    return;
+                }
+                //按学号模糊查询
+                StuCurrList = stuBll.GetCustomStusByString(this.cboStuSearch.Text.Trim(), SearchBy.SchoolID, SearchType.InAccurate);
+                return;
+            }
+            //精确查询
+            if (searchMode == SearchMode.ByName)
+            {
+                //按姓名精确查询
+                StuCurrList = stuBll.GetCustomStusByString(this.cboStuSearch.Text.Trim(), SearchBy.Name, SearchType.Accurate);
+                return;
+            }
+            StuCurrList = stuBll.GetCustomStusByString(this.cboStuSearch.Text.Trim(), SearchBy.SchoolID, SearchType.Accurate);
+            return;
+        }
+        /// <summary>
+        /// 列表显示总条数变化后的界面更新
+        /// </summary>
+        //定义总条数变化事件
+        private event Action<List<Tb_Student>>StuListUpdated;
+        private List<Tb_Student> stuCurrList;
+        private List<Tb_Student> StuCurrList
+        {
+            get
+            {
+                return stuCurrList;
+            }
+            set
+            {
+                stuCurrList = value;
+                if (StuListUpdated != null)
+                {
+                    StuListUpdated(stuCurrList);
+                }
+            }
+        }
+        int currPage = 1;//当前页
+        int totalPage = 1;//所有页
+        int itemsPerPage = 50;//每页条目数，默认20
+        /// <summary>
+        /// 界面总体更新
+        /// </summary>
+        private void UpdateStuListNow(List<Tb_Student> listWantToShow)
+        {
+            int c = listWantToShow.Count;
+            if (c<20)
+            {
+                PageVCR.Enabled = false;
+            }
+            else if (c>=20 )
+            {
+                PageVCR.Enabled = true;
+            }
+            if (c>=20 && c<50)
+            {
+                btnStuPerPage100.Enabled = false;
+                btnStuPerPage50.Enabled = false;
+                btnStuPerPage20.Enabled = true;
+            }
+            if (c>=50 && c<100)
+            {
+                btnStuPerPage100.Enabled = false;
+                btnStuPerPage50.Enabled = true;
+                btnStuPerPage20.Enabled = true;
+            }
+            if (c>=100)
+            {
+                btnStuPerPage100.Enabled = true;
+                btnStuPerPage50.Enabled = true;
+                btnStuPerPage20.Enabled = true;
+            }
+            //计算总页数
+            double d = listWantToShow.Count / itemsPerPage;
+            totalPage = (int)Math.Ceiling(d);
+            //更新文本
+            txtStuPageSelect.Text = string.Format("{0}/{1}", currPage, totalPage);
+            txtStuSearchResault.Text = string.Format("查询到{0}条数据", c);
+
+            int dataStartFrom = currPage * itemsPerPage - itemsPerPage;
+            int dataLength = itemsPerPage;
+            //确保数组边界
+            if (dataStartFrom<0)
+            {
+                dataStartFrom = 0;
+            }
+            if (dataStartFrom + itemsPerPage > listWantToShow.Count)
+            {
+                dataLength = listWantToShow.Count - dataStartFrom;
+            }
+
+            sdgvStudent.PrimaryGrid.DataSource = listWantToShow.GetRange(dataStartFrom, dataLength);
+        }
+
+        #region 学生页VCR导航
+        private void btnStuPageFirst_Click(object sender, EventArgs e)
+        {
+            if (currPage!=1)
+            {
+                currPage = 1;
+                StuCurrList = StuCurrList;
+            }
+            
+        }
+
+        private void btnStuPageStepBack_Click(object sender, EventArgs e)
+        {
+            currPage--;
+           
+            if (currPage<1)
+            {
+                currPage = 1;
+            }
+            StuCurrList = StuCurrList;
+        }
+
+        private void txtStuPageNext_Click(object sender, EventArgs e)
+        {
+            currPage++;
+           
+            if (currPage>totalPage)
+            {
+                currPage = totalPage;               
+            }
+            StuCurrList = StuCurrList;
+        }
+
+        private void btnStuPageLast_Click(object sender, EventArgs e)
+        {
+            if (currPage!=totalPage)
+            {
+                currPage = totalPage;
+                StuCurrList = StuCurrList;
+            }
+        }
+        private void btnStuPerPage20_Click(object sender, EventArgs e)
+        {
+            if (itemsPerPage!=20)
+            {
+                itemsPerPage = 20;
+                StuCurrList = StuCurrList;
+            }
+        }
+
+        private void btnStuPerPage50_Click(object sender, EventArgs e)
+        {
+            if (itemsPerPage != 50)
+            {
+                itemsPerPage = 50;
+                StuCurrList = StuCurrList;
+            }
+        }
+
+        private void btnStuPerPage100_Click(object sender, EventArgs e)
+        {
+            if (itemsPerPage != 100)
+            {
+                itemsPerPage = 100;
+                StuCurrList = StuCurrList;
+            }
+
+        }
+        bool allowShowAgain = true;
+        private void btnStuShowAllRecords_Click(object sender, EventArgs e)
+        {
+            if (!allowShowAgain)
+            {
+                sdgvStudent.PrimaryGrid.DataSource = stuBll.GetAll();
+                return;
+            }
+            CustomMessageBox1.WindowActiveStateChange+=CustomMessageBox1_WindowActiveStateChange;
+            int count  = stuBll.GetTotalCount();
+            if (count < 500)
+            {
+                PageVCR.Enabled = false;
+                sdgvStudent.PrimaryGrid.DataSource = stuBll.GetAll();
+                CustomMessageBox1.WindowActiveStateChange -= CustomMessageBox1_WindowActiveStateChange;
+                return;
+            }
+            CustomMessageBox1 myMegBox = new CustomMessageBox1("列表数量大于500个，可能会造成显示缓慢，继续吗？");
+            
+
+            DialogResult r = myMegBox.ShowDialog();
+            if (r==DialogResult.OK)
+            {
+                PageVCR.Enabled = false;
+                sdgvStudent.PrimaryGrid.DataSource = stuBll.GetAll() ;
+                CustomMessageBox1.WindowActiveStateChange -= CustomMessageBox1_WindowActiveStateChange;
+                return;
+            }
+            CustomMessageBox1.WindowActiveStateChange -= CustomMessageBox1_WindowActiveStateChange;
+        }
+
+        private void CustomMessageBox1_WindowActiveStateChange(bool allow)
+        {
+            allowShowAgain = allow;
+        }
+
+        #endregion
+
+        /// <summary>
+        /// 双击学生列表事件
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        void sdgvStudent_CellDoubleClick(object sender, GridCellDoubleClickEventArgs e)
+        {
+          
+            frmStudentEditing stuEditForm = new frmStudentEditing();
+            CurrStu = e.GridCell.GridRow.DataItem as StudentModelBasic;
+          DialogResult result =   stuEditForm.ShowDialog(this);
+          if (result == DialogResult.OK)
+          {
+              //-------------------------TO DO
+              sdgvStudent.PrimaryGrid.DataSource = stuBll.GetPagedDataOfStuModelBasic(1,20);
+              //--------------------------------------
+               sdgvStudent.Update();
+          }
+        }
+
+        private void sdgvStudent_FilterPopupLoaded(object sender, GridFilterPopupLoadedEventArgs e)
+        {
+            ItemPanel itemPanel = e.FilterPopup.Control as ItemPanel;
+            if (itemPanel !=null)
+            {
+                itemPanel.Items[0].Text = "全部显示";
+                itemPanel.Items[1].Text ="显示空值";
+                itemPanel.Items[2].Text = "显示非空";
+                itemPanel.Items[3].Text = "自定义";
+            }
+        }
+
+
+        #endregion
+        #region tab6-Quest
+        private void cboQuestExpmList_SelectedValueChanged_1(object sender, EventArgs e)
+        {
+            ComboBox box  = sender as ComboBox;
+            //更新界面
+            UpdateQuestShow(box.SelectedValue);     
+            
+        }
+        
+        private void UpdateQuestShow(object _expm)
+        {
+            Tb_Expirement expm = _expm as Tb_Expirement;
+            currQuestExpmID = expm.ExpmID;
+
+            RefreshTopText();
+            //更新选择题列表
+            RefreshQuestList(RefreshQuestOf.Cquest);
+            sdgvQuestLChoiceQuestList.PrimaryGrid.AutoGenerateColumns = false;
+            
+            //点击左侧列表时更换右边Tab页标签
+            sdgvQuestLChoiceQuestList.Click += sdgvQuestLCQuestList_Click;
+            sdgvQuestLEQuestList.Click+= sdgvQuestLEQuestList_Click;
+            //显示题目详细内容
+            sdgvQuestLChoiceQuestList.RowClick +=sdgvQuestLCQuestList_RowClick;
+            sdgvQuestLEQuestList.RowClick += sdgvQuestLEQuestList_RowClick;
+            //更新问答题列表
+            RefreshQuestList(RefreshQuestOf.Equest);
+            sdgvQuestLEQuestList.PrimaryGrid.AutoGenerateColumns = false;
+        }
+
+        private void sdgvQuestLEQuestList_Click(object sender, EventArgs e)
+        {
+            tabQuestR.SelectedIndex = 1;
+        }
+
+       private void sdgvQuestLCQuestList_Click(object sender, EventArgs e)
+        {
+            tabQuestR.SelectedIndex = 0;
+        }
+        /// <summary>
+        ///选择题列表行选择事件 
+        /// </summary>
+        private void sdgvQuestLCQuestList_RowClick(object sender, GridRowClickEventArgs e)
+        {
+            //清空当前选择的选择题题干模型
+            if (currCq!=null)
+            {
+                currCq = null;
+            }
+             currCq = currCquestList[ e.GridRow.RowIndex] as Tb_ChoiceQuest;
+            //绑定题目标题
+            txtQuestCQuestTitle.DataBindings.Clear();
+            txtQuestCQuestTitle.DataBindings.Add(new Binding("Text", currCq, "QuestTitle"));
+            //绑定题目状态
+            switchQuestCquest.DataBindings.Clear();
+            switchQuestCquest.DataBindings.Add(new Binding("Value", currCq, "IsActive"));
+            //绑定题目答案
+            IEnumerable<Tb_ChoiceQuestAnswer> answers = cQuestAnsBll.GetChoiceQuestsAnswersByChoiceQuesID(currCq.QuestID);
+            txtQuestCQuestAnswerA.DataBindings.Clear();
+            txtQuestCQuestAnswerB.DataBindings.Clear();
+            txtQuestCQuestAnswerC.DataBindings.Clear();
+            txtQuestCQuestAnswerD.DataBindings.Clear();
+
+
+            txtQuestCQuestAnswerA.DataBindings.Add(new Binding("Text", answers, "AnswerA"));
+            txtQuestCQuestAnswerB.DataBindings.Add(new Binding("Text", answers, "AnswerB"));
+            txtQuestCQuestAnswerC.DataBindings.Add(new Binding("Text", answers, "AnswerC"));
+            txtQuestCQuestAnswerD.DataBindings.Add(new Binding("Text", answers, "AnswerD"));
+            //正确答案
+            switch (currCq.Answer)
+            {
+                case "A": cboQuestCQuestRightAnswer.SelectedIndex = 0; break;
+                case "B": cboQuestCQuestRightAnswer.SelectedIndex = 1; break;
+                case "C": cboQuestCQuestRightAnswer.SelectedIndex = 2; break;
+                case "D": cboQuestCQuestRightAnswer.SelectedIndex = 3; break;
+            }
+        }
+        /// <summary>
+        /// 问答题列表行选择事件
+        /// </summary>
+        void sdgvQuestLEQuestList_RowClick(object sender, GridRowClickEventArgs e)
+        {
+            if (currEq!=null)
+	        {
+		         currEq=null;
+	        }
+           currEq = currEquestList[e.GridRow.RowIndex] as Tb_EssayQuest;
+            //绑定题目标题和答案
+           txtQuestEquestEditTitle.DataBindings.Clear();
+           txtQuestEQuestEditAnswer.DataBindings.Clear();            
+           txtQuestEquestEditTitle.DataBindings.Add(new Binding("Text", currEq, "QuestTitle"));
+           txtQuestEQuestEditAnswer.DataBindings.Add(new Binding("Text", currEq, "QuestAnswer"));
+           //绑定题目状态
+           switchQuestEQuest.DataBindings.Clear();
+           switchQuestEQuest.DataBindings.Add(new Binding("Value", currEq, "IsActive"));
+
+           //设定为增加试题状态
+           IsEQuestEditing = true;
+;
+  
+        }
+
+        #region 增删试题
+        /// <summary>
+        /// 增加选择题
+        /// </summary>
+        private void btnQuestAddCquest_Click(object sender, EventArgs e)
+        {
+            if (tabQuestR.SelectedIndex != 0)
+            {
+                tabQuestR.SelectedIndex = 0;
+            }
+            txtQuestCQuestTitle.DataBindings.Clear();
+            txtQuestCQuestAnswerA.DataBindings.Clear();
+            txtQuestCQuestAnswerB.DataBindings.Clear();
+            txtQuestCQuestAnswerC.DataBindings.Clear();
+            txtQuestCQuestAnswerD.DataBindings.Clear();
+
+            txtQuestCQuestTitle.Text = "";
+            txtQuestCQuestAnswerA.Text = "";
+            txtQuestCQuestAnswerB.Text = "";
+            txtQuestCQuestAnswerC.Text = "";
+            txtQuestCQuestAnswerD.Text = "";
+
+            txtQuestCQuestTitle.WatermarkText = "输入选择题题干";
+            txtQuestCQuestAnswerA.WatermarkText = "输入答案A";
+            txtQuestCQuestAnswerB.WatermarkText = "输入答案B";
+            txtQuestCQuestAnswerC.WatermarkText = "输入答案C";
+            txtQuestCQuestAnswerD.WatermarkText = "输入答案D";
+            //目前是增加试题状态
+            IsCQuestEditing = false;
+
+        }
+
+
+        /// <summary>
+        /// 选择题增加与编辑按钮
+        /// </summary>        
+        //判断目前是增加还是编辑状态，让按钮执行不同的功能
+        bool IsCQuestEditing = true;       
+        private void btnQuestCQuestSave_Click(object sender, EventArgs e)
+        {  
+            //若当前是增加试题状态
+            #region 增加选择题
+            if (!IsCQuestEditing)
+            {
+                 //构建选择题题干对象
+                Tb_ChoiceQuest newCquest = new Tb_ChoiceQuest();
+                if (currQuestExpmID == -1)
+                {
+                    ToastNotification.Show(this, "未选择实验", eToastPosition.BottomCenter);
+                    return;
+                }
+                newCquest.ExpmID = currQuestExpmID;
+                newCquest.QuestTitle = txtQuestCQuestTitle.Text;
+                newCquest.Answer = cboQuestCQuestRightAnswer.SelectedItem.ToString();
+                newCquest.IsActive = this.switchQuestCquest.Value;
+                //构建选择题备选答案对象
+                //选择题题干ID无需指明，是在sql语句中声明变量获得
+                Tb_ChoiceQuestAnswer newCquestAns = new Tb_ChoiceQuestAnswer();
+                newCquestAns.AnswerA = txtQuestCQuestAnswerA.Text.Trim();
+                newCquestAns.AnswerB = txtQuestCQuestAnswerB.Text.Trim();
+                newCquestAns.AnswerC = txtQuestCQuestAnswerC.Text.Trim();
+                newCquestAns.AnswerD = txtQuestCQuestAnswerD.Text.Trim();
+                //判断文本输入框是否为空
+                if (txtQuestCQuestTitle.Text == "" ||
+                    txtQuestCQuestAnswerA.Text == "" ||
+                txtQuestCQuestAnswerB.Text == "" ||
+                txtQuestCQuestAnswerC.Text == "" ||
+                txtQuestCQuestAnswerD.Text == "")
+                {
+                    ToastNotification.Show(this, "请将内容填写完整", eToastPosition.BottomCenter);
+                    return;
+                }
+                if (cboQuestCQuestRightAnswer.SelectedItem==null)
+                {
+                     ToastNotification.Show(this, "请选择正确答案", eToastPosition.BottomCenter);
+                    return;
+                }
+                if (cQuestBll.InsertCQuestWithAns(newCquest, newCquestAns) > 0)
+                {
+                    //更新选择题列表
+                    RefreshQuestList(RefreshQuestOf.Cquest);
+                    RefreshTopText();
+                    ToastNotification.Show(this, "添加选择题成功", eToastPosition.BottomCenter);
+                    return;
+                }
+            } 
+            #endregion
+            #region 更新选择题
+            else if (IsCQuestEditing)
+            {
+                //若当前是编辑试题状态
+                //构建选择题题干对象
+                currCq.QuestTitle = txtQuestCQuestTitle.Text;
+                currCq.Answer = cboQuestCQuestRightAnswer.SelectedItem.ToString();
+                currCq.IsActive = this.switchQuestCquest.Value;
+                //构建选择题备选答案对象
+                //选择题题干ID即为当前题干ID
+                Tb_ChoiceQuestAnswer UpdateCquestAns = new Tb_ChoiceQuestAnswer();
+                UpdateCquestAns.ChoiceQuestID = currCq.QuestID;
+                UpdateCquestAns.AnswerA = txtQuestCQuestAnswerA.Text.Trim();
+                UpdateCquestAns.AnswerB = txtQuestCQuestAnswerB.Text.Trim();
+                UpdateCquestAns.AnswerC = txtQuestCQuestAnswerC.Text.Trim();
+                UpdateCquestAns.AnswerD = txtQuestCQuestAnswerD.Text.Trim();
+
+                if (cQuestBll.Update(currCq) > 0 && cQuestAnsBll.UpdateCquestAnsByCQuestID(UpdateCquestAns) > 0)
+                {
+                    ToastNotification.Show(this, "更新成功", eToastPosition.BottomCenter);
+                    return;
+                }
+            } 
+            #endregion
+        }
+
+        /// <summary>
+        /// 增加问答题
+        /// </summary>
+        private void btnQuestAddEquest_Click(object sender, EventArgs e)
+        {
+            if (tabQuestR.SelectedIndex != 1)
+            {
+                tabQuestR.SelectedIndex = 1;
+            }
+
+            txtQuestEquestEditTitle.DataBindings.Clear();
+            txtQuestEQuestEditAnswer.DataBindings.Clear();
+
+            txtQuestEquestEditTitle.Text = "";
+            txtQuestEQuestEditAnswer.Text = "";
+
+            txtQuestEquestEditTitle.WatermarkText = "输入问答题题干";
+            txtQuestEQuestEditAnswer.WatermarkText = "输入问答题参考答案";
+            //设定为增加试题状态
+            IsEQuestEditing = false;
+        }
+        /// <summary>
+        /// 问答题增加与编辑按钮
+        /// </summary>
+        bool IsEQuestEditing = true;
+        private void btnQuestEQuestEditSave_Click(object sender, EventArgs e)
+        {
+
+            //若当前是编辑试题状态          
+            if (IsEQuestEditing)
+            {
+                //构建问答题对象
+                currEq.QuestTitle = txtQuestEquestEditTitle.Text.Trim();
+                currEq.QuestAnswer = txtQuestEQuestEditAnswer.Text;
+                currEq.IsActive = switchQuestEQuest.Value;
+
+                if (eQuestBll.Update(currEq)>0)             
+                   ToastNotification.Show(this, "更新成功", eToastPosition.BottomCenter);             
+            }
+             //当前为增加状态
+            else if (!IsEQuestEditing)
+            {
+                //构建问答题对象
+                Tb_EssayQuest newEq = new Tb_EssayQuest();
+                if (currQuestExpmID == -1)
+                {
+                    ToastNotification.Show(this, "未选择实验", eToastPosition.BottomCenter);
+                    return;
+                }
+                newEq.ExpmID = currQuestExpmID;//------------------------------------------------------------------------------
+                newEq.QuestTitle = txtQuestEquestEditTitle.Text.Trim();
+                newEq.QuestAnswer = txtQuestEQuestEditAnswer.Text;
+                newEq.IsActive = switchQuestEQuest.Value;
+
+                if (eQuestBll.Add(newEq) != null)
+                   ToastNotification.Show(this, "添加问答题成功", eToastPosition.BottomCenter);
+            }
+            RefreshQuestList(RefreshQuestOf.Equest);
+            RefreshTopText();
+        }
+        #region 题目删除
+        /// <summary>
+        /// 删除选择题
+        /// </summary>
+        private void btnQuestDelCquest_Click(object sender, EventArgs e)
+        {
+            DelQuest(currCq.QuestID, true);
+        }
+        /// <summary>
+        /// 删除问答题
+        /// </summary>
+        private void btnQuestDelEquest_Click(object sender, EventArgs e)
+        {
+            DelQuest(currEq.QuestID, false);
+        }
+        private void DelQuest(int questID, bool isCquest)
+        {
+            if (MessageBoxEx.Show("操作不可恢复，继续吗？", "确认", MessageBoxButtons.YesNo, MessageBoxIcon.Question)==DialogResult.No)
+	        {
+                return;
+	        } 
+            
+            if (isCquest)
+            {
+                if (cQuestBll.DeleteByQuestID(questID)>0)
+                {
+                    ToastNotification.Show(this, "试题已删除", eToastPosition.BottomCenter);
+                    RefreshQuestList(RefreshQuestOf.Cquest); 
+                    RefreshTopText();
+                } 
+                return;
+            }
+
+            if (eQuestBll.DeleteByQuestID(questID)>0)
+            {
+                ToastNotification.Show(this, "试题已删除", eToastPosition.BottomCenter);
+                RefreshQuestList(RefreshQuestOf.Equest);
+                RefreshTopText();
+            }
+            
+            return;
+
+        }
+        #endregion
+        private enum RefreshQuestOf { Cquest, Equest, Both };
+        private void RefreshQuestList(RefreshQuestOf method)
+        {
+            switch (method)
+            {
+                case  RefreshQuestOf.Cquest:
+                    sdgvQuestLChoiceQuestList.PrimaryGrid.DataSource = currCquestList = cQuestBll.GetChoiceQuestsByExpmID(currQuestExpmID) as List<Tb_ChoiceQuest>;
+                    break;
+                case RefreshQuestOf.Equest:
+                    sdgvQuestLEQuestList.PrimaryGrid.DataSource = currEquestList = eQuestBll.GetEssayQuestsByExpmID(currQuestExpmID) as List<Tb_EssayQuest>;
+                    break;
+                case RefreshQuestOf.Both:
+                    sdgvQuestLChoiceQuestList.PrimaryGrid.DataSource = currCquestList = cQuestBll.GetChoiceQuestsByExpmID(currQuestExpmID) as List<Tb_ChoiceQuest>;
+                    sdgvQuestLEQuestList.PrimaryGrid.DataSource = currEquestList = eQuestBll.GetEssayQuestsByExpmID(currQuestExpmID) as List<Tb_EssayQuest>;
+                    break;
+            } 
+           
+        }
+
+        /// <summary>
+        ///更新顶部文本
+        /// </summary>
+        private void RefreshTopText()
+        {
+            string str1 = eQuestBll.GetEssayQuestCountByExpmID(currQuestExpmID).ToString();
+            string str2 = cQuestBll.GetChoiceQuestCountOfExpm(currQuestExpmID).ToString();
+            txtQuestCountAll.Text = "共有问答题" + str1 + "道，" + "选择题" + str2 + "道";
+        }
+        #endregion
+
+        private void cboQuestEssayList_SelectedValueChanged(object sender, EventArgs e)
+        {
+
+
+        }
+        #endregion
+        #region tab7-Admin
+        private void Tab7Initiate()
+        {
+            GridPanel panel = sdgvAdmin.PrimaryGrid;
+            GridColumn restPwdColumn = panel.Columns["sgvAdminResetPwd"];
+            restPwdColumn.EditorType = typeof(SGVCustomCellButton_AdminResetPwd);
+
+            GridColumn saveColumn = panel.Columns["sgvAdminSave"];
+            saveColumn.EditorType = typeof(SGVCustomCellButton_AdminSave);
+
+
+            GridColumn pwdColumn = panel.Columns["sgvAdminPwd"];
+            pwdColumn.EditorType = typeof(SGVCustomCellText_AdminPwd);
+
+            //设置currAdmin
+            this.sdgvAdmin.CellClick+=sdgvAdmin_CellClick;
+            //单元格值改变后使保存按钮可用
+            this.sdgvAdmin.EditorValueChanged += sdgvAdmin_EditorValueChanged;
+        }
+
+        void sdgvAdmin_EditorValueChanged(object sender, GridEditEventArgs e)
+        {
+            e.GridCell.GridRow["sgvAdminSave"].ReadOnly = false;
+        }
+
+        private void sdgvAdmin_CellClick(object sender, GridCellClickEventArgs e)
+        {
+            currAdmin = e.GridCell.GridRow.DataItem as Tb_Admin;
+        }
+
+        /// <summary>
+        /// 添加管理员
+        /// </summary>
+
+        private void btnAdminAdd_Click(object sender, EventArgs e)
+        {
+            Tb_Admin newAdmin = new Tb_Admin();
+            newAdmin.Name = "New Admin";
+            newAdmin.Pwd = "123456";
+            newAdmin.LastLogin = DateTime.Now;
+            newAdmin.IsRoot = false;
+            newAdmin.IsActive = true;
+            adminBll.Add(newAdmin);
+            //更新列表
+            sdgvAdmin.PrimaryGrid.DataSource = adminBll.GetAllExceptSuper();
+            MessageBoxEx.Show("新管理员已添加，默认用户名：New Admin，默认密码123456");
+            
+        }
+        /// <summary>
+        /// 删除管理员
+        /// </summary>
+        private void btnAdminDel_Click(object sender, EventArgs e)
+        {
+            if (currAdmin==null)
+            {
+                MessageBoxEx.Show("请选择欲删除的管理员");
+                return;
+            }
+            if (MessageBoxEx.Show(string.Format("确认删除管理员{0}吗？",currAdmin.Name),"删除确认",MessageBoxButtons.YesNo,MessageBoxIcon.Question)
+                ==DialogResult.No)
+            {
+                return;
+            }
+            adminBll.DeleteById(currAdmin.Id);
+            sdgvAdmin.PrimaryGrid.DataSource = adminBll.GetAllExceptSuper();
+        }
+        //修改密码
+        private void btnAdminChangeSuperPwd_Click(object sender, EventArgs e)
+        {
+            frmAlterPwd alterPwdWindow = new frmAlterPwd(UserType.Admin);
+            alterPwdWindow.ShowDialog();
+            if (alterPwdWindow.DialogResult==DialogResult.OK)
+            {
+                ToastNotification.Show(this, "密码修改成功", eToastPosition.MiddleCenter);
+            }
+        }
+
+        #endregion
+        #region 针对总窗体
+        /// <summary>
+        /// 顶部Tab与地下的Tab联动
+        /// </summary>
+
+        private void topBar_ItemClick (object sender, EventArgs e)
+        {
+            ButtonItem btn = sender as ButtonItem;
+           
+            this.tabContainer.SelectedTabIndex = Int32.Parse(btn.Tag.ToString());
+            int btnIndex = Convert.ToInt32(btn.Tag);
+            //if (btnIndex == 2 || btnIndex == 4 || btnIndex == 5)
+            //{
+            //    btnSearchOverAll.Enabled = true;
+            //}
+            //else
+            //    btnSearchOverAll.Enabled = false;
+        }
+        /// <summary>
+        /// 
+        /// </summary>
+        private void tabContainer_SelectedTabChanged (object sender, SuperTabStripSelectedTabChangedEventArgs e)
+        {
+            //SuperTabControl tab = sender as SuperGridControl;
+
+        }
+        /// <summary>
+        /// 总搜索按钮
+        /// </summary>
+        private void btnSearchOverAll_Click(object sender, EventArgs e)
+        {
+
+        }
+        #endregion
+        #region 公共方法
+        /// <summary>
+        /// 文件拷贝，必须实例化FormFileCopy类存储变量
+        /// </summary>
+        private BackgroundWorker bkWorker = new BackgroundWorker();
+        private void BigFileCopy(FormFileCopyModel copyModel)
+        {
+            bkWorker.DoWork += new DoWorkEventHandler(StartCopy);
+            bkWorker.RunWorkerCompleted +=new RunWorkerCompletedEventHandler (CopyFinished);
+            bkWorker.RunWorkerAsync(copyModel);
+        }
+
+
+        /// <summary>
+        /// 拷文件线程委托方法
+        /// </summary>
+        private void StartCopy(object sender, DoWorkEventArgs e)
+        {
+            FormFileCopyModel model = e.Argument as FormFileCopyModel;
+            ItemPanel dockPanel = model.DockPanel as ItemPanel;
+            bool isActionOver = false;
+            //控制线程关闭
+            while (!isActionOver)
+            {                
+                    //实例化一个进度指示器
+                    CircularProgressItem cProg = new CircularProgressItem();
+                    cProg.ProgressBarType = eCircularProgressType.Dot;
+                    cProg.ProgressColor = Color.Black;
+                    cProg.Enabled = true;
+                    //跨线程窗口访问
+                    if (dockPanel.InvokeRequired)
+                    {
+                        dockPanel.Invoke(new Action(() =>
+                        {
+                            dockPanel.Items.Add(cProg);
+                            cProg.IsRunning = true;
+                            dockPanel.Refresh();
+                        }));
+                    }
+                    //获得方法返回值，其返回值在CopyFinished方法中取出
+                    e.Result = FileHelper.StreamCopy(model.Src, model.Des);
+                    //停止进度指示器
+                    cProg.IsRunning = false;
+                    if (dockPanel.InvokeRequired)
+                    {
+                        dockPanel.Invoke(new Action(() =>
+                        {
+                            dockPanel.Items.Remove(cProg);
+                            cProg = null;
+                            dockPanel.Refresh();
+                        }));
+                    }
+                
+                isActionOver = true;
+            }
+        }
+        private void CopyFinished(object sender, RunWorkerCompletedEventArgs e)
+        {
+            if ((bool)e.Result)
+            {
+                //跨线程窗口访问
+                this.Invoke(new Action(() =>
+                {
+                    ToastNotification.Show(this, "实验视频设置成功", eToastPosition.BottomCenter);
+                }));
+                return;
+            }
+            MessageBoxEx.Show("设置失败");
+        }
+        #endregion
+
+        //private void dgvExpirement_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        //{
+
+        //}
+        /// <summary>
+        /// 学生表加入测试数据
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        //private void buttonItem21_Click(object sender, EventArgs e)
+        //{
+        //    Random rand =new Random ();
+        //    string[] Names = new string[] { 
+        //    "Isabella", "Sophia", "Emma", "Olivia", "Ava", "Emily", "Abigail", "Madison",
+        //    "Chloe", "Mia", "Addison", "Elizabeth", "Ella", "Natalie", "Samantha", "Alexis",
+        //    "Lily", "Grace", "Hailey", "Alyssa", "Lillian", "Hannah", "Avery", "Leah",
+        //    "Nevaeh", "Sofia", "Ashley", "Anna", "Brianna", "Sarah", "Zoe", "Victoria",
+        //    "Gabriella", "Brooklyn", "Kaylee", "Taylor", "Layla", "Allison", "Evelyn",
+        //    "Riley", "Amelia", "Khloe"};
+        //    for (int i = 0; i < 1000; i++)
+        //    {
+        //     Tb_Student testData=new Tb_Student ();
+        //        testData.StuName = "Test" +Names[rand.Next(0,Names.Length)];
+        //        testData.StuPwd = "111";
+        //        testData.StuSchoolID = string.Format("TestSchoID{0}",rand.Next().ToString());
+        //        testData.StuGrade =(short) rand.Next(1,4);
+        //        testData.StuClass = (short)rand.Next(1,6);
+        //        testData.StuMajor =  (short)rand.Next(1,5);
+        //        testData.StuRemark = "TESTDATA";
+        //        testData.StuAttendLate=(byte?)rand.Next(0,10);
+        //        testData.StuAttenAbsent = (byte?)rand.Next(0,10);
+        //        //testData.StuAvgScore = 9.5;
+        //        testData.StuLastLoginTime = DateTime.Now.AddMonths(-rand.Next(12, 240));
+        //        testData.StuIsActive = rand.Next(10,30)==12?true:false;
+        //        stuBll.Add(testData);
+        //    }
+        //    sdgvStudent.PrimaryGrid.DataSource = stuBll.GetAll();
+
+
+        //}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    }
+
+}
