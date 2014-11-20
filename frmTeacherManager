@@ -1,0 +1,391 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Windows.Forms;
+using DevComponents.DotNetBar;
+using BIOVR_SERVER.UIAddition;
+using BIOVR_SERVER.PopupForms;
+using BIOVR_MODEL;
+using System.Configuration;
+using BIOVR_NETCOMMON;
+using BIOVR_NET_MODEL;
+using System.Collections;
+
+namespace BIOVR_SERVER
+{
+    public partial class frmTeacherManage:Office2007Form
+    {
+        #region Propetites
+        /// <summary>
+        /// 当前登录的教师
+        /// </summary>
+        public Tb_Teacher currTeacher { get; private set; }
+        /// <summary>
+        /// 当前选择的实验
+        /// </summary>
+        public Tb_Expirement CurrExpm { get; set; }
+        /// <summary>
+        /// 当前选择的班级
+        /// </summary>
+        public TeacherManagerCurrClassInfo CurrClassInfo { get; set; }
+        /// <summary>
+        /// 客户端列表
+        /// </summary>
+        List<PCInfoClient> connectedClient = new List<PCInfoClient>();
+        /// <summary>
+        /// 服务器（本机）信息，由于类库无法读取appconfig，
+        /// 所以从这里读取，类ServerNetWorkCenter实例化时传递进去
+        /// </summary>
+        PCInfoServer hostInfo = null;
+        #endregion
+        #region  Initialization
+        public frmTeacherManage(Tb_Teacher currTracher)
+        {
+            //获得服务器信息
+            GetHostInfo();
+            //实例化ServerNetWorkCenter
+            try
+            {
+                ServerNetWorkCenter serverNWC = ServerNetWorkCenter.GetInstance(hostInfo); 
+            }
+            catch
+            {
+                throw new Exception("服务器类无法启动！");
+            }
+                       
+            ///设置当前登录教师
+            this.currTeacher = currTeacher;
+            //注册事件
+            RegisterEvent();
+            InitializeComponent();
+        } 
+        #endregion
+        #region GetHostInfo
+        /// <summary>
+        /// 从配置文件中获取要广播的主机信息
+        /// </summary>
+        private void GetHostInfo()
+        {
+            string VideoLanBroadCastAddress;
+            int tcpListenPort, udpTargetPort, udpListenPort, VideoLanBroadCastPort;
+            Int32.TryParse(ConfigurationManager.AppSettings["TCPListenPort"], out tcpListenPort);
+            Int32.TryParse(ConfigurationManager.AppSettings["UDPTargetPort"], out udpTargetPort);
+            Int32.TryParse(ConfigurationManager.AppSettings["UDPListenPort"], out udpListenPort);
+            Int32.TryParse(ConfigurationManager.AppSettings["VideoLanBroadCastPort"], out VideoLanBroadCastPort);
+
+            VideoLanBroadCastAddress = ConfigurationManager.AppSettings["VideoLanBroadCastAddress"];
+            hostInfo = NetWorkHelper.GetHostInfo(udpListenPort, tcpListenPort, udpTargetPort, VideoLanBroadCastPort, VideoLanBroadCastAddress);
+        } 
+        #endregion
+        #region RegisterEvent
+        private void RegisterEvent()
+        {
+            //客户端状态更新
+            ServerNetWorkCenter.ClientStateUpdate+=  ClientStateUpdateHandler;
+            //来自客户端的文本消息
+            ServerNetWorkCenter.TextMsgReceived += TxtMsgReceivedHandler;
+            //ServerNetWorkCenter.PacketReceived += PacketReceivedHandler;
+            //客户端计算机图标点击
+            frmClientInfo.ClientIconClicked += ClientIcon_Click;
+            //选择实验
+            frmTMSelectExpm.ExpmSelected += ExpmSelectedEventHandler;
+            //选择班级
+            frmTMSelectClass.ClassInfoSettedEvent += ClassInfoSettedEventHandler;
+        }
+
+
+        #endregion
+        #region EventHandler
+      
+        /// <summary>
+        /// 客户端l状态更新事件处理
+        /// </summary>
+        /// <param name="clientUpdateInfo"></param>
+        private void ClientStateUpdateHandler(PCInfoClient clientUpdateInfo)
+        {
+            //如果列表不为零
+            if (connectedClient.Count > 0)
+            {
+                // IDictionaryEnumerator ide = clientDict.GetEnumerator();
+
+                for (int i = 0; i < connectedClient.Count; i++)
+                {
+                    //已连接到的客户端进行更新
+                    if (connectedClient[i].Ip == clientUpdateInfo.Ip)
+                    {
+                        //更新列表
+                        connectedClient[i] = clientUpdateInfo;
+                        //更新界面
+                        UpdateClient(clientUpdateInfo);
+                    }
+                    //没有则添加
+                    else
+                    {
+                        AddClient(clientUpdateInfo);
+                        connectedClient.Add(clientUpdateInfo);
+                    }
+                }
+
+            }
+            //列表为零直接添加
+            else
+            {
+                AddClient(clientUpdateInfo);
+                connectedClient.Add(clientUpdateInfo);
+            }
+        }
+        /// <summary>
+        /// 添加客户端信息添加到窗口UI和字典
+        /// </summary>
+        /// <param name="client"></param>
+        private void AddClient(PCInfoClient client)
+        {
+            if (this.flowLayoutClientList.InvokeRequired)
+            {
+                this.Invoke(new Action<PCInfoClient>(AddClientUI), client);
+            }
+
+        }
+        private void AddClientUI(PCInfoClient clientInfo)
+        {
+            frmClientInfo newCLient = new frmClientInfo(clientInfo);
+            this.flowLayoutClientList.Controls.Add(newCLient);
+        }
+        /// <summary>
+        /// 更新客户端信息窗口UI
+        /// </summary>
+        private void UpdateClient(PCInfoClient clientInfo)
+        {
+            if (this.flowLayoutClientList.InvokeRequired)
+            {
+                this.Invoke(new Action<PCInfoClient>(UpdateClientList), clientInfo);
+            }
+
+        }
+        private void UpdateClientList(PCInfoClient obj)
+        {
+            PCInfoClient clientInfo = obj as PCInfoClient;
+            //遍历窗口
+            for (int i = 0; i < flowLayoutClientList.Controls.Count; i++)
+            {
+               frmClientInfo clf =  flowLayoutClientList.Controls[i] as frmClientInfo;
+               if (clf.CurrClientInfo.Ip == clientInfo.Ip)
+               {
+                   clf.UpdateUI(clientInfo);
+               }
+              
+            }
+        }
+        /// <summary>
+        /// PacketReceivedHandler收到包的处理
+        /// </summary>
+        /// <param name="obj"></param>
+        private void PacketReceivedHandler(NetModel netModel)
+        {
+        
+        }
+        /// <summary>
+        /// 收到文本信息的处理
+        /// </summary>
+        /// <param name="arg1"></param>
+        /// <param name="arg2"></param>
+        private void TxtMsgReceivedHandler(PCInfoClient clientInfo, string msg)
+        {
+            string txtAddToMsgList, txtToPopUpCaption;
+            if (clientInfo.CurrOperator != null)
+            {
+                txtAddToMsgList = string.Format("[机器{0}]{1}说：{2}", clientInfo.Name, clientInfo.CurrOperator.StuRealName, msg);
+
+                 txtToPopUpCaption = "来自" + clientInfo.CurrOperator.StuRealName + "的消息";
+            }
+            else
+            {
+                txtAddToMsgList = string.Format("[机器{0}]说：{1}", clientInfo.Name, msg);
+
+                txtToPopUpCaption = "";
+            }
+      
+            if (this.InvokeRequired)
+            {
+            //右下角弹窗
+                this.Invoke(new Action<string,string>(ShowLoadAlert),  txtToPopUpCaption,msg);
+            //添加到消息列表
+
+                this.Invoke(new Action<string>((x) => this.listBoxTMMsgShow.Items.Add(x)), txtAddToMsgList);
+            }
+            else
+                this.listBoxTMMsgShow.Items.Add(txtAddToMsgList);
+        }
+        private AlertCustom m_AlertTxtMsg = null;
+        private void ShowLoadAlert(string caption, string content)
+        {
+            //object[] ob = obj as object[];
+            //string caption = (string)ob[0];
+            //string content = (string)ob[1];
+
+            m_AlertTxtMsg = new AlertCustom(caption, content);
+            Rectangle r = Screen.GetWorkingArea(this);
+            m_AlertTxtMsg.Location = new Point(r.Right - m_AlertTxtMsg.Width, r.Bottom - m_AlertTxtMsg.Height);
+            m_AlertTxtMsg.AutoClose = true;
+            m_AlertTxtMsg.AutoCloseTimeOut = 15;
+            m_AlertTxtMsg.AlertAnimation = eAlertAnimation.BottomToTop;
+            m_AlertTxtMsg.AlertAnimationDuration = 300;
+            m_AlertTxtMsg.Show(false);
+        }
+
+        #endregion 
+        #region ButtonsFunc
+
+                /// <summary>
+                /// 计算机图标点击
+                /// </summary>
+                private void ClientIcon_Click(PCInfoClient selectedClient,frmClientInfo frmClient)
+                {
+                    //更换图标背景色
+                    foreach (Control item in this.flowLayoutClientList.Controls)
+                    {
+                        item.BackColor = Color.Transparent;
+                    }
+                    frmClient.BackColor = Color.LightGray;
+                }
+                /// <summary>
+                /// 当前选择的实验
+                /// </summary>
+                private void ExpmSelectedEventHandler(Tb_Expirement selectedExpm, bool startClass)
+                {
+                        //设置当前实验
+                        CurrExpm = selectedExpm;
+                        //设置界面
+                        this.txtTMCurrSelectedExpm.Text = "当前实验：" + selectedExpm.ExpmName;
+                        barTeachBottomStauteBar.Refresh();     
+
+                    if (startClass)
+                    {
+                        btnTMStartClass.RaiseClick();            
+                    }
+                }
+                /// <summary>
+                /// 当前选择班级
+                /// </summary>
+                private void ClassInfoSettedEventHandler(TeacherManagerCurrClassInfo classInfo)
+                {
+                    if (classInfo == null)
+                    {
+                        return;
+                    }
+                    this.CurrClassInfo = classInfo;
+
+                    this.txtTMClassInfo.Visible = true;
+                    this.txtTMClassInfo.Text = "|" +"当前班级："+ classInfo.CurrMajor.MajorName
+                        + classInfo.CurrGrade.GradeName + classInfo.CurrClass.ClassName;
+                    this.barTeachBottomStauteBar.Refresh();
+                }
+
+
+        /// <summary>
+        /// 选择实验
+        /// </summary>
+        private void btnTMChoiceExpm_Click(object sender, EventArgs e)
+        {
+            frmTMSelectExpm frmSelectExpm = new frmTMSelectExpm();
+            frmSelectExpm.ShowDialog();
+        }
+        /// <summary>
+        ///开始/暂停实验 
+        /// </summary>
+        int btnClickCount = 0;
+        private void btnTMStartClass_Click(object sender, EventArgs e)
+        {
+            ButtonItem start_pauseBtn = (ButtonItem)sender;
+            if (btnClickCount%2==0)
+            {
+                StartClass();
+                start_pauseBtn.Image = Properties.Resources.pause;
+                start_pauseBtn.Text = "暂停上课";
+            }
+            else
+            {
+                PauseClass();
+                start_pauseBtn.Image = Properties.Resources.start;
+                start_pauseBtn.Text = "开始上课";
+            }
+            btnClickCount++;
+        }
+        /// <summary>
+        /// 开始上课
+        /// </summary>
+        private void StartClass()
+        {
+
+        }
+        /// <summary>
+        /// 暂停上课
+        /// </summary>
+        private void PauseClass()
+        {
+           
+        }
+        /// <summary>
+        /// 播放ppt
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnTMPlayPPT_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "ppt|*.ppt|pptx|*.pptx";
+            ofd.ShowDialog();
+        }
+        /// <summary>
+        /// 考勤登记
+        /// </summary>
+        private void btnTMCheckAttendance_Click(object sender, EventArgs e)
+        {
+            if (CurrClassInfo==null)
+            {
+                ToastNotification.Show(this, "请先选择班级");
+                return;
+            }
+            frmTMCheckAttendance checkAttenWindow = new frmTMCheckAttendance(CurrClassInfo);
+            checkAttenWindow.ShowDialog();
+        }
+
+
+
+        /// <summary>
+        /// 选择/登记班级信息
+        /// </summary>
+        private void btnTMSelectClass_Click(object sender, EventArgs e)
+        {
+            frmTMSelectClass selectClassWindow = new frmTMSelectClass();
+            selectClassWindow.ShowDialog();
+        }
+        /// <summary>
+        /// 布置作业
+        /// </summary>
+        private void btnTMAssignHomework_Click(object sender, EventArgs e)
+        {
+            if (CurrExpm == null)
+            {
+                ToastNotification.Show(this, "尚未选择实验",eToastPosition.MiddleCenter);
+                return;
+            }
+
+            frmTMAssignHomework frmAssignHkWindow = new frmTMAssignHomework(CurrExpm);
+            frmAssignHkWindow.ShowDialog();
+        }
+        #endregion
+
+        /// <summary>
+        /// 发送文本
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void btnTMSend_Click(object sender, EventArgs e)
+        {
+
+        }
+
+
+    }
+}
